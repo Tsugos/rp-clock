@@ -19,6 +19,4 @@ config_schema:
     show_timestamp:
       type: boolean
       default: true
-
 github_path: 'https://github.com/Tsugos/rp-clock'
-
