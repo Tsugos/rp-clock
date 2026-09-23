@@ -1,205 +1,95 @@
-import {ReactElement} from "react";
-import {StageBase, StageResponse, InitialData, Message} from "@chub-ai/stages-ts";
-import {LoadResponse} from "@chub-ai/stages-ts/dist/types/load";
+import {ReactElement} from 'react';
+import {StageBase, StageResponse, InitialData, Message} from '@chub-ai/stages-ts';
+import {LoadResponse} from '@chub-ai/stages-ts/dist/types/load';
 
-/***
- The type that this stage persists message-level state in.
- This is primarily for readability, and not enforced.
-
- @description This type is saved in the database after each message,
-  which makes it ideal for storing things like positions and statuses,
-  but not for things like history, which is best managed ephemerally
-  in the internal state of the Stage class itself.
- ***/
-type MessageStateType = any;
-
-/***
- The type of the stage-specific configuration of this stage.
-
- @description This is for things you want people to be able to configure,
-  like background color.
- ***/
-type ConfigType = any;
-
-/***
- The type that this stage persists chat initialization state in.
- If there is any 'constant once initialized' static state unique to a chat,
- like procedurally generated terrain that is only created ONCE and ONLY ONCE per chat,
- it belongs here.
- ***/
-type InitStateType = any;
-
-/***
- The type that this stage persists dynamic chat-level state in.
- This is for any state information unique to a chat,
-    that applies to ALL branches and paths such as clearing fog-of-war.
- It is usually unlikely you will need this, and if it is used for message-level
-    data like player health then it will enter an inconsistent state whenever
-    they change branches or jump nodes. Use MessageStateType for that.
- ***/
-type ChatStateType = any;
-
-/***
- A simple example class that implements the interfaces necessary for a Stage.
- If you want to rename it, be sure to modify App.js as well.
- @link https://github.com/CharHubAI/chub-stages-ts/blob/main/src/types/stage.ts
- ***/
-export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateType, ConfigType> {
-
-    /***
-     A very simple example internal state. Can be anything.
-     This is ephemeral in the sense that it isn't persisted to a database,
-     but exists as long as the instance does, i.e., the chat page is open.
-     ***/
-    myInternalState: {[key: string]: any};
-
-    constructor(data: InitialData<InitStateType, ChatStateType, MessageStateType, ConfigType>) {
-        /***
-         This is the first thing called in the stage,
-         to create an instance of it.
-         The definition of InitialData is at @link https://github.com/CharHubAI/chub-stages-ts/blob/main/src/types/initial.ts
-         Character at @link https://github.com/CharHubAI/chub-stages-ts/blob/main/src/types/character.ts
-         User at @link https://github.com/CharHubAI/chub-stages-ts/blob/main/src/types/user.ts
-         ***/
-        super(data);
-        const {
-            characters,         // @type:  { [key: string]: Character }
-            users,                  // @type:  { [key: string]: User}
-            config,                                 //  @type:  ConfigType
-            messageState,                           //  @type:  MessageStateType
-            environment,                     // @type: Environment (which is a string)
-            initState,                             // @type: null | InitStateType
-            chatState                              // @type: null | ChatStateType
-        } = data;
-        this.myInternalState = messageState != null ? messageState : {'someKey': 'someValue'};
-        this.myInternalState['numUsers'] = Object.keys(users).length;
-        this.myInternalState['numChars'] = Object.keys(characters).length;
-    }
-
-    async load(): Promise<Partial<LoadResponse<InitStateType, ChatStateType, MessageStateType>>> {
-        /***
-         This is called immediately after the constructor, in case there is some asynchronous code you need to
-         run on instantiation.
-         ***/
-        return {
-            /*** @type boolean @default null
-             @description The 'success' boolean returned should be false IFF (if and only if), some condition is met that means
-              the stage shouldn't be run at all and the iFrame can be closed/removed.
-              For example, if a stage displays expressions and no characters have an expression pack,
-              there is no reason to run the stage, so it would return false here. ***/
-            success: true,
-            /*** @type null | string @description an error message to show
-             briefly at the top of the screen, if any. ***/
-            error: null,
-            initState: null,
-            chatState: null,
-        };
-    }
-
-    async setState(state: MessageStateType): Promise<void> {
-        /***
-         This can be called at any time, typically after a jump to a different place in the chat tree
-         or a swipe. Note how neither InitState nor ChatState are given here. They are not for
-         state that is affected by swiping.
-         ***/
-        if (state != null) {
-            this.myInternalState = {...this.myInternalState, ...state};
-        }
-    }
-
-    async beforePrompt(userMessage: Message): Promise<Partial<StageResponse<ChatStateType, MessageStateType>>> {
-        /***
-         This is called after someone presses 'send', but before anything is sent to the LLM.
-         ***/
-        const {
-            content,            /*** @type: string
-             @description Just the last message about to be sent. ***/
-            anonymizedId,       /*** @type: string
-             @description An anonymized ID that is unique to this individual
-              in this chat, but NOT their Chub ID. ***/
-            isBot             /*** @type: boolean
-             @description Whether this is itself from another bot, ex. in a group chat. ***/
-        } = userMessage;
-        return {
-            /*** @type null | string @description A string to add to the
-             end of the final prompt sent to the LLM,
-             but that isn't persisted. ***/
-            stageDirections: null,
-            /*** @type MessageStateType | null @description the new state after the userMessage. ***/
-            messageState: {'someKey': this.myInternalState['someKey']},
-            /*** @type null | string @description If not null, the user's message itself is replaced
-             with this value, both in what's sent to the LLM and in the database. ***/
-            modifiedMessage: null,
-            /*** @type null | string @description A system message to append to the end of this message.
-             This is unique in that it shows up in the chat log and is sent to the LLM in subsequent messages,
-             but it's shown as coming from a system user and not any member of the chat. If you have things like
-             computed stat blocks that you want to show in the log, but don't want the LLM to start trying to
-             mimic/output them, they belong here. ***/
-            systemMessage: null,
-            /*** @type null | string @description an error message to show
-             briefly at the top of the screen, if any. ***/
-            error: null,
-            chatState: null,
-        };
-    }
-
-    async afterResponse(botMessage: Message): Promise<Partial<StageResponse<ChatStateType, MessageStateType>>> {
-        /***
-         This is called immediately after a response from the LLM.
-         ***/
-        const {
-            content,            /*** @type: string
-             @description The LLM's response. ***/
-            anonymizedId,       /*** @type: string
-             @description An anonymized ID that is unique to this individual
-              in this chat, but NOT their Chub ID. ***/
-            isBot             /*** @type: boolean
-             @description Whether this is from a bot, conceivably always true. ***/
-        } = botMessage;
-        return {
-            /*** @type null | string @description A string to add to the
-             end of the final prompt sent to the LLM,
-             but that isn't persisted. ***/
-            stageDirections: null,
-            /*** @type MessageStateType | null @description the new state after the botMessage. ***/
-            messageState: {'someKey': this.myInternalState['someKey']},
-            /*** @type null | string @description If not null, the bot's response itself is replaced
-             with this value, both in what's sent to the LLM subsequently and in the database. ***/
-            modifiedMessage: null,
-            /*** @type null | string @description an error message to show
-             briefly at the top of the screen, if any. ***/
-            error: null,
-            systemMessage: null,
-            chatState: null
-        };
-    }
-
-
-    render(): ReactElement {
-        /***
-         There should be no "work" done here. Just returning the React element to display.
-         If you're unfamiliar with React and prefer video, I've heard good things about
-         @link https://scrimba.com/learn/learnreact but haven't personally watched/used it.
-
-         For creating 3D and game components, react-three-fiber
-           @link https://docs.pmnd.rs/react-three-fiber/getting-started/introduction
-           and the associated ecosystem of libraries are quite good and intuitive.
-
-         Cuberun is a good example of a game built with them.
-           @link https://github.com/akarlsten/cuberun (Source)
-           @link https://cuberun.adamkarlsten.com/ (Demo)
-         ***/
-        return <div style={{
-            width: '100vw',
-            height: '100vh',
-            display: 'grid',
-            alignItems: 'stretch'
-        }}>
-            <div>Hello World! I'm an empty stage! With {this.myInternalState['someKey']}!</div>
-            <div>There is/are/were {this.myInternalState['numChars']} character(s)
-                and {this.myInternalState['numUsers']} human(s) here.
-            </div>
-        </div>;
-    }
-
+type Clock = {date: string; minute: number};
+type State = {clock: Clock};
+type Config = {initial_date?: string; initial_time?: string; show_timestamp?: boolean};
+const pad = (n: number) => String(n).padStart(2, '0');
+function days(iso: string): number | null {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);
+  if (!m || +m[1] < 1) return null;
+  const d = new Date(0);
+  d.setUTCHours(0, 0, 0, 0);
+  d.setUTCFullYear(+m[1], +m[2] - 1, +m[3]);
+  return d.getUTCFullYear() === +m[1] && d.getUTCMonth() === +m[2] - 1 && d.getUTCDate() === +m[3]
+    ? Math.floor(d.getTime() / 86400000) : null;
+}
+const isoAt = (n: number) => new Date(n * 86400000).toISOString().slice(0, 10);
+const valid = (c: any): c is Clock => typeof c?.date === 'string' && days(c.date) !== null &&
+  Number.isSafeInteger(c.minute) && c.minute >= 0 && c.minute < 1440;
+const parseTime = (s?: string) => {
+  const m = /^(\d{1,2}):(\d{2})$/.exec(s || '');
+  return m && +m[1] < 24 && +m[2] < 60 ? +m[1] * 60 + +m[2] : 1080;
+};
+const display = (c: Clock) => {
+  const [year, month, day] = c.date.split('-');
+  return `${day}.${month}.${year}\n${pad(Math.floor(c.minute / 60))}:${pad(c.minute % 60)}`;
+};
+const add = (c: Clock, n: number): Clock => ({
+  date: isoAt(days(c.date)! + Math.floor((c.minute + n) / 1440)), minute: (c.minute + n) % 1440
+});
+function parseStamp(s: string): Clock | null {
+  const m = /^(\d{2})\.(\d{2})\.(\d{4})\s+(\d{2}):(\d{2})$/.exec(s);
+  if (!m) return null;
+  const c = {date: `${m[3]}-${m[2]}-${m[1]}`, minute: +m[4] * 60 + +m[5]};
+  return valid(c) ? c : null;
+}
+export function playerClock(c: Clock, text: string): Clock {
+  const absolute = /(\d{2}\.\d{2}\.\d{4})\s+(\d{2}:\d{2})/.exec(text);
+  if (absolute) {const next = parseStamp(absolute[0]); if (next) return next;}
+  if (/(?:на\s+)?следующ(?:ее|им)\s+утр(?:о|ом)|next\s+morning/i.test(text))
+    return days(c.date)! < days('9999-12-31')! ? add({date: c.date, minute: 480}, 1440) : c;
+  const r = /(?:через|спустя|after|in)\s+(\d{1,4}|один|одну|два|две|три|четыре|пять|десять|двадцать)\s*(час(?:а|ов)?|минут(?:у|ы)?|hours?|minutes?|hrs?|mins?)(?=$|[\s.,!?;:])/i.exec(text);
+  if (!r) return c;
+  const words: Record<string, number> = {один: 1, одну: 1, два: 2, две: 2, три: 3, четыре: 4, пять: 5, десять: 10, двадцать: 20};
+  const n = (words[r[1].toLowerCase()] ?? +r[1]) * (/^(час|hour|hr)/i.test(r[2]) ? 60 : 1);
+  return n > 0 && n <= 43200 && days(c.date)! + Math.floor((c.minute + n) / 1440) <= days('9999-12-31')!
+    ? add(c, n) : c;
+}
+export function botClock(c: Clock, text: string): Clock {
+  const updates = [...text.matchAll(/\[RPG_TIME_UPDATE\]([\s\S]*?)\[\/RPG_TIME_UPDATE\]/gi)];
+  if (updates.length !== 1) return c;
+  const next = parseStamp(updates[0][1].trim());
+  if (!next) return c;
+  const delta = (days(next.date)! - days(c.date)!) * 1440 + next.minute - c.minute;
+  return delta >= 0 && delta <= 1440 ? next : c;
+}
+export function visibleText(text: string, c: Clock, show: boolean): string {
+  const clean = text.replace(/\[RPG_TIME_UPDATE\][\s\S]*?\[\/RPG_TIME_UPDATE\]/gi, '')
+    .replace(/\[RPG_TIME_UPDATE\][\s\S]*$/gi, '')
+    .replace(/\[\/RPG_TIME_UPDATE\]/gi, '')
+    .replace(/^\s*(?:(?:\d{2}\.\d{2}\.\d{4}\s*\n\s*\d{2}:\d{2}|Day\s+\d+\s*,\s*\d{1,2}:\d{2})\s*\n)+/i, '').trim();
+  return show ? `${display(c)}\n\n${clean}` : clean;
+}
+export class Stage extends StageBase<null, null, State, Config> {
+  private clock: Clock;
+  private readonly initial: Clock;
+  private readonly show: boolean;
+  constructor(data: InitialData<null, null, State, Config>) {
+    super(data);
+    const candidate = {date: data.config?.initial_date ?? '2026-02-02', minute: parseTime(data.config?.initial_time)};
+    this.initial = valid(candidate) ? candidate : {date: '2026-02-02', minute: 1080};
+    this.clock = valid(data.messageState?.clock) ? {...data.messageState.clock} : {...this.initial};
+    this.show = data.config?.show_timestamp !== false;
+  }
+  async load(): Promise<Partial<LoadResponse<null, null, State>>> {
+    return {success: true, initState: null, chatState: null};
+  }
+  async setState(state: State): Promise<void> {
+    this.clock = valid(state?.clock) ? {...state.clock} : {...this.initial};
+  }
+  async beforePrompt(message: Message): Promise<Partial<StageResponse<null, State>>> {
+    if (!message.isBot) this.clock = playerClock(this.clock, message.content || '');
+    return {
+      messageState: {clock: {...this.clock}},
+      stageDirections: `RP date and time: ${display(this.clock).replace('\n', ' ')}. Preserve chronology. Only if time passes within your response, append [RPG_TIME_UPDATE]DD.MM.YYYY HH:MM[/RPG_TIME_UPDATE] at the end with the new date and time (up to 24 hours later); otherwise omit it. Never print a visible timestamp yourself: the stage handles it. Do not alter character, memory, relationships, story facts or other stages.`,
+      modifiedMessage: null, systemMessage: null, chatState: null
+    };
+  }
+  async afterResponse(message: Message): Promise<Partial<StageResponse<null, State>>> {
+    this.clock = botClock(this.clock, message.content || '');
+    return {messageState: {clock: {...this.clock}}, modifiedMessage: visibleText(message.content || '', this.clock, this.show), systemMessage: null, chatState: null};
+  }
+  render(): ReactElement { return <></>; }
 }
